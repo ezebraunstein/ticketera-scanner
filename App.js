@@ -95,7 +95,7 @@ export default function App() {
       setTimeout(() => {
         setScanned(false);
         setShowResult(false);
-      }, 1500);
+      }, 1000);
     } catch (err) {
       console.error("Error fetching ticket information:", err);
     }
@@ -131,7 +131,6 @@ export default function App() {
         />
         {ResultOverlay()}
       </View>
-      <Text style={styles.maintext}>{text}</Text>
     </View>
   );
 };
@@ -139,22 +138,18 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#000",
     alignItems: "center",
     justifyContent: "center",
   },
-  maintext: {
-    fontSize: 16,
-    margin: 20,
-  },
+
   barcodebox: {
     alignItems: "center",
     justifyContent: "center",
-    height: 300,
-    width: 300,
+    height: 400,
+    width: 400,
     overflow: "hidden",
-    borderRadius: 30,
-    backgroundColor: "tomato",
+    borderRadius: 20,
   },
   overlay: {
     position: "absolute",
@@ -166,7 +161,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   overlayText: {
-    fontSize: 24,
+    fontSize: 50,
     fontWeight: "bold",
     color: "#fff",
   },
