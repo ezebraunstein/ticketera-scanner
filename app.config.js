@@ -31,8 +31,8 @@ export default {
             favicon: './assets/favicon.png',
         },
         extra: {
-            ACCESS_KEY: process.env.ACCESS_KEY,
-            SECRET_ACCESS_KEY: process.env.SECRET_ACCESS_KEY,
+            REACT_APP_ACCESS_KEY: process.env.REACT_APP_ACCESS_KEY,
+            REACT_APP_SECRET_ACCESS_KEY: process.env.REACT_APP_SECRET_ACCESS_KEY,
         }
     }
 }

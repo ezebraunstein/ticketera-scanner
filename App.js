@@ -4,12 +4,12 @@ import { BarCodeScanner } from "expo-barcode-scanner";
 import Constants from "expo-constants";
 import AWS from "aws-sdk";
 
-const { ACCESS_KEY, SECRET_ACCESS_KEY } = Constants.manifest.extra;
+const { REACT_APP_ACCESS_KEY, REACT_APP_SECRET_ACCESS_KEY } = Constants.manifest.extra;
 
 AWS.config.update({
   region: "us-east-1",
-  accessKeyId: ACCESS_KEY,
-  secretAccessKey: SECRET_ACCESS_KEY,
+  accessKeyId: REACT_APP_ACCESS_KEY,
+  secretAccessKey: REACT_APP_SECRET_ACCESS_KEY,
 });
 
 export default function App() {
@@ -146,8 +146,8 @@ const styles = StyleSheet.create({
   barcodebox: {
     alignItems: "center",
     justifyContent: "center",
-    height: 400,
-    width: 400,
+    height: 350,
+    width: 350,
     overflow: "hidden",
     borderRadius: 20,
   },
