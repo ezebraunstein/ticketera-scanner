@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { Text, View, StyleSheet, TextInput, Button, TouchableOpacity, Image } from "react-native";
+import { Text, View, TextInput, TouchableOpacity, Image, Animated, Easing } from "react-native";
 import { BarCodeScanner } from "expo-barcode-scanner";
 import Constants from "expo-constants";
 import logo from './assets/MeloLogo.png';
 import * as Font from 'expo-font';
 import AppLoading from 'expo-app-loading';
 import AWS from "aws-sdk";
-
 import useFonts from './hooks/useFonts';
 
 const { REACT_APP_ACCESS_KEY, REACT_APP_SECRET_ACCESS_KEY } = Constants.manifest.extra;
@@ -17,6 +16,8 @@ AWS.config.update({
   secretAccessKey: REACT_APP_SECRET_ACCESS_KEY,
 });
 
+var s = require('./styles/styleSheet');
+
 export default function App() {
   const [hasPermission, setHasPermission] = useState(null);
   const [scanned, setScanned] = useState(false);
@@ -26,6 +27,13 @@ export default function App() {
   const [inputEventID, setInputEventID] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [IsReady, SetIsReady] = useState(false);
+  const [logoAnim] = useState(new Animated.Value(0));
+  const [showIntro, setShowIntro] = useState(true);
+  const [ticketData, setTicketData] = useState(null);
+  const [eventName, setEventName] = useState("");
+  const [validTicketCount, setValidTicketCount] = useState(0);
+  const [prevEventID, setPrevEventID] = useState("");
+
 
   const LoadFonts = async () => {
     await useFonts();
@@ -44,17 +52,65 @@ export default function App() {
     askForCameraPermission();
   }, []);
 
-  const handleStartScanning = () => {
+  useEffect(() => {
+    Animated.timing(logoAnim, {
+      toValue: 1,
+      duration: 1500,
+      easing: Easing.elastic(1),
+      useNativeDriver: true,
+    }).start(() => setShowIntro(false));
+  }, []);
+
+  useEffect(() => {
+    if (inputEventID !== prevEventID) {
+        setValidTicketCount(0);
+        setPrevEventID(inputEventID);  
+        setTicketData(null);  
+    }
+}, [inputEventID]);
+
+  const handleStartScanning = async () => {
     if (inputEventID) {
       setIsScanning(true);
+      try {
+        const name = await fetchEventName(inputEventID);
+        setEventName(name);
+      } catch (err) {
+        console.error("Error fetching event name:", err);
+      }
     } else {
-      alert("Please enter an event ID before scanning.");
+      alert("Ingrese un código de evento válido antes de continuar");
     }
-  };
+};
 
   const handleGoBack = () => {
     setIsScanning(false);
+  };
+
+  const fetchEventName = async (eventID) => {
+    return new Promise((resolve, reject) => {
+      const params = {
+        TableName: "Event-zn4tkt5eivea5af5egpjlychcm-dev",
+        KeyConditionExpression: "id = :id",
+        ExpressionAttributeValues: {
+          ":id": eventID,
+        },
+      };
+
+      docClient.query(params, (err, items) => {
+        if (err) {
+          console.error(
+            "Unable to query the event table. Error JSON:",
+            JSON.stringify(err, null, 2)
+          );
+          reject(err);
+        } else {
+          resolve(items.Items[0]?.nameEvent || null);
+        }
+      });
+    });
 };
+
 
   const fetchTicketInformation = async (ticketId) => {
     return new Promise((resolve, reject) => {
@@ -80,58 +136,103 @@ export default function App() {
     });
   };
 
-  const handleBarCodeScanned = async ({ type, data }) => {
-    setScanned(true);
-    setText(data);
+  const fetchTicketTypeName = async (typeTicketID) => {
+    return new Promise((resolve, reject) => {
+      const params = {
+        TableName: "TypeTicket-zn4tkt5eivea5af5egpjlychcm-dev",
+        KeyConditionExpression: "id = :id",
+        ExpressionAttributeValues: {
+          ":id": typeTicketID,
+        },
+      };
 
-    try {
-      const items = await fetchTicketInformation(data);
-
-      if (items.Count === 1) {
-        if (items.Items[0].eventID === inputEventID && items.Items[0].validTicket) {
-          setValidTicket(true);
-
-          const updateParams = {
-            TableName: "Ticket-zn4tkt5eivea5af5egpjlychcm-dev",
-            Key: { "id": data },
-            UpdateExpression: "set validTicket = :v",
-            ExpressionAttributeValues: { ":v": false },
-          };
-
-          docClient.update(updateParams, (err, data) => {
-            if (err) {
-              console.error(
-                "Unable to update ticket. Error JSON:",
-                JSON.stringify(err, null, 2)
-              );
-            }
-          });
-        }
-        else if (items.Items[0].eventID !== inputEventID) {
-          setValidTicket("eventMismatch");
+      docClient.query(params, (err, items) => {
+        if (err) {
+          console.error(
+            "Unable to query the table. Error JSON:",
+            JSON.stringify(err, null, 2)
+          );
+          reject(err);
         } else {
-          setValidTicket(false);
+          resolve(items.Items[0]?.nameTT || null);
         }
+      });
+    });
+};
+
+const handleBarCodeScanned = async ({ type, data }) => {
+  setScanned(true);
+  setText(data);
+
+  try {
+    const items = await fetchTicketInformation(data);
+
+    if (items.Count === 1) {
+      if (items.Items[0].eventID === inputEventID && items.Items[0].validTicket) {
+
+        setValidTicket(true);
+
+        const typeName = await fetchTicketTypeName(items.Items[0].typeticketID);
+
+        setTicketData({
+          dniTicket: items.Items[0].dniTicket,
+          typeticketID: typeName
+        });
+
+        setValidTicketCount(prevCount => prevCount + 1); // Increase the count by 1
+
+        const updateParams = {
+          TableName: "Ticket-zn4tkt5eivea5af5egpjlychcm-dev",
+          Key: { "id": data },
+          UpdateExpression: "set validTicket = :v",
+          ExpressionAttributeValues: { ":v": false },
+        };
+
+        docClient.update(updateParams, (err, data) => {
+          if (err) {
+            console.error(
+              "Unable to update ticket. Error JSON:",
+              JSON.stringify(err, null, 2)
+            );
+          }
+        });
       }
+      else if (items.Items[0].eventID !== inputEventID) {
 
-      setShowResult(true);
+        setValidTicket("eventMismatch");
+        setTicketData(null);
 
-      setTimeout(() => {
-        setScanned(false);
-        setShowResult(false);
-      }, 3000);
-    } catch (err) {
-      console.error("Error fetching ticket information:", err);
+      } else {
+
+        setValidTicket(false);
+        const typeName = await fetchTicketTypeName(items.Items[0].typeticketID);
+        setTicketData({
+          dniTicket: items.Items[0].dniTicket,
+          typeticketID: typeName
+        });
+
+      }
     }
-  };
+
+    setShowResult(true);
+
+    setTimeout(() => {
+      setScanned(false);
+      setShowResult(false);
+    }, 3000);
+  } catch (err) {
+    console.error("Error fetching ticket information:", err);
+  }
+};
+
 
   const ResultOverlay = () => {
     if (!showResult) return null;
 
     if (validTicket === "eventMismatch") {
       return (
-        <View style={[styles.overlay, { backgroundColor: "rgba(255, 255, 0, 0.7)" }]}>
-          <Text style={styles.overlayText}>Incorrect Event</Text>
+        <View style={[s.overlay, { backgroundColor: "rgba(255, 255, 0, 0.7)" }]}>
+          <Text style={s.overlayText}>NO RECONOCIDO</Text>
         </View>
       );
     }
@@ -139,7 +240,7 @@ export default function App() {
     return (
       <View
         style={[
-          styles.overlay,
+          s.overlay,
           {
             backgroundColor: validTicket
               ? "rgba(0, 255, 0, 0.7)"
@@ -147,56 +248,95 @@ export default function App() {
           },
         ]}
       >
-        <Text style={styles.overlayText}>
-          {validTicket ? "✓ Valid Ticket" : "✕ Invalid Ticket"}
+        <Text style={s.overlayText}>
+          {validTicket ? "✓ VÁLIDO" : "✕ INVÁLIDO"}
         </Text>
       </View>
     );
   };
 
-  if (!IsReady) {
-    return (
-      <AppLoading
-        startAsync={LoadFonts}
-        onFinish={() => SetIsReady(true)}
-        onError={() => {}}
-      />
-    );
+  const logoStyles = {
+    transform: [
+      {
+        scale: logoAnim
+      }
+    ],
+    opacity: logoAnim
+  };
+
+  if (!IsReady || showIntro) {
+    if (showIntro) {
+      return (
+        <View style={s.container}>
+          <Animated.Image source={logo} style={[s.logo, logoStyles]} />
+        </View>
+      );
+    } else {
+      return (
+        <AppLoading
+          startAsync={LoadFonts}
+          onFinish={() => SetIsReady(true)}
+          onError={() => {}}
+        />
+      );
+    }
   }
 
   return (
-    <View style={styles.container}>
+    <View style={s.container}>
       {!isScanning && (
         <>
-        <Image source={logo} style={styles.logo} />
-          {/* <TextInput
-            style={{ backgroundColor: "white", padding: 10, width: 300, marginBottom: 20 }}
-            placeholder="Enter Event ID"
-            value={inputEventID}
-            onChangeText={setInputEventID}
-          /> */}
+        <Image source={logo} style={s.logo} />
           <TextInput
-            style={styles.textInputStyle}
+            style={s.textInputStyle}
             placeholder="Ingrese código del evento..."
             placeholderTextColor="#777"
             value={inputEventID}
             onChangeText={setInputEventID}
           />
-          <TouchableOpacity style={styles.btnMain} onPress={handleStartScanning}>
+          <TouchableOpacity style={s.btnMain} onPress={handleStartScanning}>
             <Text style={{ color: "#ffffff", fontSize: 30, fontFamily: 'BebasNeue-Regular', textAlign: "center" }}>Continuar</Text>
           </TouchableOpacity>
         </>
       )}
       {isScanning && (
         <>
-          <View style={styles.barcodebox}>
+            <Text style={s.eventNameText}>{eventName}</Text>
+            <Text style={{ ...s.someTextStyle, textAlign: 'center' }}>
+              Asistentes: {validTicketCount}
+            </Text>
+            <View style={s.barcodebox}>
             <BarCodeScanner
               onBarCodeScanned={scanned ? undefined : handleBarCodeScanned}
               style={{ height: 400, width: 400 }}
             />
             {ResultOverlay()}
           </View>
-          <TouchableOpacity style={styles.btnSecondary} onPress={handleGoBack}>
+          <View style={s.softbox}>
+            {ticketData ? (
+              <>
+                <Text style={s.softText} >DNI: {ticketData.dniTicket}</Text>
+                <Text style={s.softText}>TIPO ENTRADA: {ticketData.typeticketID}</Text>
+                <Text style={[s.softText, { color: validTicket ? "#8fac24" : "#ee593c" }]}>
+                <Text style={s.softText}>ESTADO: </Text>
+                {validTicket ? "✓ Válido" : "✕ Inválido"}
+            </Text>
+              </>
+            ) : validTicket === "eventMismatch" ? (
+              <>
+              <Text style={s.softText}>DNI: --------</Text>
+              <Text style={s.softText}>TIPO ENTRADA: --------</Text>
+              <Text style={s.softText}>ESTADO: --------</Text>
+              </>
+            ) : (
+              <>
+              <Text style={s.softText}>DNI: --------</Text>
+              <Text style={s.softText}>TIPO ENTRADA: --------</Text>
+              <Text style={s.softText}>ESTADO: --------</Text>
+              </>
+            )}
+          </View>
+          <TouchableOpacity style={s.btnSecondary} onPress={handleGoBack}>
             <Text style={{ color: "#ffffff", fontSize: 25, fontFamily: 'BebasNeue-Regular', textAlign: "center" }}>Volver</Text>
           </TouchableOpacity>
         </>
@@ -204,87 +344,3 @@ export default function App() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#B1CD4A",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20
-  },
-  barcodebox: {
-    alignItems: "center",
-    justifyContent: "center",
-    height: 400,
-    width: 400,
-    overflow: "hidden",
-    borderRadius: 20,
-  },
-  btnMain: {
-    fontFamily: 'BebasNeue-Regular',
-    fontSize: 30,
-    textAlign: "center",
-    backgroundColor: "#f28d46",
-    padding: 10,
-    paddingHorizontal: 15,
-    color: "#ffffff",
-    borderRadius: 20,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    maxWidth: '100%',
-    marginTop: 15
-  },
-  btnSecondary: {
-    fontFamily: 'BebasNeue-Regular',
-    fontSize: 25,
-    textAlign: "center",
-    backgroundColor: "#f28d46",
-    padding: 8,
-    paddingHorizontal: 12,
-    marginTop: 20,
-    color: "#ffffff",
-    borderRadius: 15,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    maxWidth: '90%'
-  },
-  overlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  overlayText: {
-    fontSize: 50,
-    fontWeight: "bold",
-    color: "#fff",
-  },
-  logo: {
-    width: 300, // or your desired size
-    height: 150, // or your desired size
-    resizeMode: 'contain',
-    marginBottom: 20
-},
-textInputStyle: {
-  backgroundColor: "#f2f2f2", // slightly darker than white
-  padding: 10,
-  width: 300,
-  marginBottom: 20,
-  borderRadius: 10, // soft corner effect
-  shadowColor: "#000",
-  shadowOffset: {
-    width: 0,
-    height: 2,
-  },
-  shadowOpacity: 0.23,
-  shadowRadius: 2.62,
-  elevation: 4, // for Android shadow
-  fontFamily: 'BebasNeue-Regular'
-}
-});
